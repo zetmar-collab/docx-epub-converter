@@ -6,6 +6,7 @@ Autor: Marek Zettel
 
 from __future__ import annotations
 
+import base64
 import html
 import io
 import json
@@ -46,7 +47,6 @@ NAVY_PANEL_ALT = "#14365f"
 NAVY_BORDER = "#27527f"
 NAVY_INPUT = "#f4f8ff"
 NAVY_TEXT = "#edf5ff"
-NAVY_MUTED = "#b8cbe3"
 NAVY_ACCENT = "#2f80d0"
 NAVY_ACCENT_ACTIVE = "#4aa3ff"
 
@@ -193,10 +193,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Konwerter zaczyna EPUB od pierwszego rozdzialu, wiec ten tekst moglby zostac pominiety."
         ),
         "issue_empty_chapters": "Te rozdzialy nie maja tresci pod naglowkiem: ",
+        "btn_copy": "Kopiuj do schowka",
         "btn_batch": "Konwertuj serie...",
         "batch_title": "Konwersja serii DOCX",
         "batch_select": "Wybierz pliki DOCX do konwersji seryjnej",
-        "batch_start": "Konwertuj wszystkie",
         "batch_need_author": "Uzupelnij pola Autor i Wydawca przed konwersja seryjna.",
         "batch_need_cover": "Wybierz okladke przed konwersja seryjna.",
         "batch_summary_ok": "Sukces: ",
@@ -298,10 +298,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "The converter starts the EPUB from the first chapter, so this text might be skipped."
         ),
         "issue_empty_chapters": "These chapters have no body text under their heading: ",
+        "btn_copy": "Copy to clipboard",
         "btn_batch": "Batch convert...",
         "batch_title": "Batch DOCX Conversion",
         "batch_select": "Select DOCX files for batch conversion",
-        "batch_start": "Convert All",
         "batch_need_author": "Fill in Author and Publisher fields before batch conversion.",
         "batch_need_cover": "Select a cover image before batch conversion.",
         "batch_summary_ok": "Success: ",
@@ -755,6 +755,7 @@ def make_opf(
         "Digitally accessible publication. Semantic HTML structure, navigational table of contents, "
         "alternative texts, complete metadata. Compliant with EPUB Accessibility 1.1 and WCAG 2.1 AA."
     )
+    # EN is used as a neutral fallback for all non-PL languages (DE, FR, ES, IT, …)
     a11y_summary = _A11Y_PL if lang == "pl" else _A11Y_EN
     return e(
         '<?xml version="1.0" encoding="utf-8"?>\n'
@@ -806,10 +807,11 @@ def build_epub(
     lang: str = "pl",
 ) -> bytes:
     cover_mime = "image/jpeg" if cover_ext.lower() in (".jpg", ".jpeg") else "image/png"
+    # EN as fallback for all non-PL languages (no per-language cover text defined)
     cover_alt = (
-        "Cover: " + meta["title"] + ", " + meta["author"]
-        if lang == "en"
-        else "Okladka: " + meta["title"] + ", autor " + meta["author"]
+        "Okladka: " + meta["title"] + ", autor " + meta["author"]
+        if lang == "pl"
+        else "Cover: " + meta["title"] + ", " + meta["author"]
     )
 
     buffer = io.BytesIO()
@@ -1526,7 +1528,16 @@ class EpubConverterApp(_BaseApp):
         scroll.pack(side=tk.RIGHT, fill=tk.Y)
         text.configure(yscrollcommand=scroll.set)
 
-        ttk.Button(frame, text=self.t("btn_ok"), command=window.destroy).pack(anchor=tk.E, pady=(12, 0))
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(anchor=tk.E, pady=(12, 0))
+
+        def _copy_to_clipboard():
+            window.clipboard_clear()
+            window.clipboard_append(message)
+            window.update()
+
+        ttk.Button(btn_row, text=self.t("btn_copy"), command=_copy_to_clipboard).pack(side=tk.LEFT, padx=(0, 8))
+        ttk.Button(btn_row, text=self.t("btn_ok"), command=window.destroy).pack(side=tk.LEFT)
         window.focus_set()
 
     # ------------------------------------------------------------------
@@ -1585,8 +1596,6 @@ class EpubConverterApp(_BaseApp):
             self.after(0, lambda: self.show_error(exc))
 
     def write_preview_html(self, result: ConversionResult) -> Path:
-        import base64
-
         lang = self.ui_lang_var.get()
         tr   = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
 
@@ -1755,7 +1764,7 @@ class EpubConverterApp(_BaseApp):
                 win.after(0, lambda idx=i, n=p.name: upd(idx, "[>]", n))
                 try:
                     docx_bytes = p.read_bytes()
-                    issues = inspect_docx_for_epub(docx_bytes)
+                    issues = inspect_docx_for_epub(docx_bytes, TRANSLATIONS[self.ui_lang_var.get()])
                     if issues:
                         raise ValueError(issues[0])
                     chapters, images = parse_docx(docx_bytes)
