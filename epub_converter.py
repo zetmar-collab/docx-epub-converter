@@ -1,5 +1,5 @@
 """
-DOCX EPUB Converter
+DOCX EPUB Converter v2.0
 EAA / EPUB Accessibility 1.1 / WCAG 2.1 AA
 Autor: Marek Zettel
 """
@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html
 import io
+import json
 import os
 import re
 import subprocess
@@ -24,11 +25,20 @@ import tkinter as tk
 from tkinter import ttk
 
 from docx import Document
+from docx.oxml.ns import qn as _docx_qn
 from epubcheck import EpubCheck
 from PIL import Image, ImageTk
 
+try:
+    from tkinterdnd2 import TkinterDnD, DND_FILES
+    _HAS_DND = True
+except ImportError:
+    _HAS_DND = False
+
+_BaseApp = TkinterDnD.Tk if _HAS_DND else tk.Tk  # type: ignore[misc]
 
 APP_TITLE = "DOCX EPUB Converter"
+APP_VERSION = "2.0"
 APP_AUTHOR = "Marek Zettel"
 NAVY_BG = "#071a33"
 NAVY_PANEL = "#0f2747"
@@ -39,6 +49,24 @@ NAVY_TEXT = "#edf5ff"
 NAVY_MUTED = "#b8cbe3"
 NAVY_ACCENT = "#2f80d0"
 NAVY_ACCENT_ACTIVE = "#4aa3ff"
+
+# OOXML tag constants (computed once at module load)
+_W_P         = _docx_qn("w:p")
+_W_TBL       = _docx_qn("w:tbl")
+_W_R         = _docx_qn("w:r")
+_W_T         = _docx_qn("w:t")
+_W_HYPERLINK = _docx_qn("w:hyperlink")
+_W_B         = _docx_qn("w:b")
+_W_I         = _docx_qn("w:i")
+_W_U         = _docx_qn("w:u")
+_W_STRIKE    = _docx_qn("w:strike")
+_W_RPR       = _docx_qn("w:rPr")
+_A_BLIP  = "{http://schemas.openxmlformats.org/drawingml/2006/main}blip"
+_R_EMBED = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}embed"
+_R_HYP          = "{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"
+_W_FOOTNOTE_REF = _docx_qn("w:footnoteReference")
+_W_FN_ID        = _docx_qn("w:id")
+_FOOTNOTES_RT   = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/footnotes"
 
 DOC_LANGUAGES = [
     ("Polski (pl)", "pl"),
@@ -55,6 +83,22 @@ DOC_LANGUAGES = [
     ("Nederlands (nl)", "nl"),
     ("Português (pt)", "pt"),
 ]
+
+TOC_TITLES: dict[str, str] = {
+    "pl": "Spis treści",
+    "en": "Table of Contents",
+    "de": "Inhaltsverzeichnis",
+    "fr": "Table des matières",
+    "es": "Tabla de contenidos",
+    "it": "Indice",
+    "cs": "Obsah",
+    "sk": "Obsah",
+    "hu": "Tartalomjegyzék",
+    "ru": "Оглавление",
+    "uk": "Зміст",
+    "nl": "Inhoudsopgave",
+    "pt": "Índice",
+}
 
 TRANSLATIONS: dict[str, dict[str, str]] = {
     "pl": {
@@ -83,6 +127,28 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "section_preview": "Podglad skonwertowanego pliku",
         "preview_after": "Po konwersji zobaczysz tutaj wynik walidacji i zapisany plik.",
         "toc_label": "Spis tresci",
+        "toc_title": "Spis treści",
+        "preview_html_title": "Podglad EPUB",
+        "author_label": "Autor",
+        "err_isbn_title": "Niepoprawny ISBN",
+        "err_isbn_msg": "ISBN musi zawierac dokladnie 10 lub 13 cyfr (bez myslnikow).",
+        "isbn_help_title": "Co to jest ISBN i jak go uzyskac?",
+        "isbn_help_text": (
+            "ISBN (International Standard Book Number) to bezplatny, unikatowy numer\n"
+            "identyfikujacy publikacje. Kazdy format (e-book, druk, audiobook) wymaga\n"
+            "osobnego numeru.\n\n"
+            "Format w tej aplikacji: 10 lub 13 cyfr, bez myslnikow ani spacji.\n"
+            "Przyklad: 9788301234567\n\n"
+            "Jak uzyskac ISBN w Polsce (bezplatnie):\n"
+            "  1. Wejdz na e-isbn.pl (serwis Biblioteki Narodowej).\n"
+            "  2. Zaloz konto wydawcy — takze jako osoba fizyczna.\n"
+            "     Potrzebne: nazwa, adres, NIP lub PESEL, e-mail.\n"
+            "  3. Zloz wniosek o pule numerow (min. 10 sztuk).\n"
+            "  4. Konto aktywowane zwykle w 1 dzien roboczy;\n"
+            "     numery przyznawane w kilka dni roboczych.\n"
+            "  5. W panelu e-ISBN przypisz konkretny numer do swojej publikacji.\n\n"
+            "Pole jest opcjonalne — EPUB powstanie rowniez bez numeru ISBN."
+        ),
         "preview_placeholder": (
             "Podglad pojawi sie po konwersji.\n\n"
             "W aplikacji widoczny jest tekst rozdzialow. "
@@ -119,8 +185,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "preflight_err_title": "Nie mozna sprawdzic DOCX",
         "preflight_err_msg": "Blad odczytu dokumentu:\n\n",
         "err_no_chapters": "Nie znaleziono rozdzialow. Uzyj stylu Heading 1 / Naglowek 1 dla tytulow rozdzialow.",
-        "issue_tables": "Dokument zawiera tabele. Ten konwerter nie przenosi tabel do EPUB, wiec tresc moglaby zostac utracona.",
-        "issue_inline_shapes": "Dokument zawiera obrazy w tresci. Ten konwerter obsluguje osobna okladke, ale nie przenosi obrazow z DOCX.",
         "issue_empty_h1": "Jeden z naglowkow Heading 1 / Naglowek 1 jest pusty.",
         "issue_h3_without_h2": "Dokument zawiera naglowek Heading 3 / Naglowek 3 bez poprzedzajacego Heading 2.",
         "issue_no_chapters": "Brakuje rozdzialow oznaczonych stylem Heading 1 / Naglowek 1. EPUB wymaga poprawnej struktury rozdzialow.",
@@ -129,6 +193,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "Konwerter zaczyna EPUB od pierwszego rozdzialu, wiec ten tekst moglby zostac pominiety."
         ),
         "issue_empty_chapters": "Te rozdzialy nie maja tresci pod naglowkiem: ",
+        "btn_batch": "Konwertuj serie...",
+        "batch_title": "Konwersja serii DOCX",
+        "batch_select": "Wybierz pliki DOCX do konwersji seryjnej",
+        "batch_start": "Konwertuj wszystkie",
+        "batch_need_author": "Uzupelnij pola Autor i Wydawca przed konwersja seryjna.",
+        "batch_need_cover": "Wybierz okladke przed konwersja seryjna.",
+        "batch_summary_ok": "Sukces: ",
+        "batch_summary_err": ", Bledy: ",
+        "cover_warn_ratio": "Uwaga: proporcje okladki odbiegaja od standardu 2:3 (sklepy ebookowe).",
+        "cover_warn_res": "Uwaga: okladka moze byc za mala — zalecane minimum 1200 px szerokosci.",
+        "epubcheck_messages": "komunikat(ow)",
+        "label_file": "Plik:",
+        "label_error": "Blad:",
     },
     "en": {
         "app_subtitle": "Desktop conversion to EPUB 3 compliant with EAA / EPUB Accessibility 1.1 / WCAG 2.1 AA",
@@ -156,6 +233,27 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "section_preview": "Preview of converted file",
         "preview_after": "After conversion you will see the validation result and saved file here.",
         "toc_label": "Table of contents",
+        "toc_title": "Table of Contents",
+        "preview_html_title": "EPUB Preview",
+        "author_label": "Author",
+        "err_isbn_title": "Invalid ISBN",
+        "err_isbn_msg": "ISBN must be exactly 10 or 13 digits (no hyphens).",
+        "isbn_help_title": "What is ISBN and how to get one?",
+        "isbn_help_text": (
+            "ISBN (International Standard Book Number) is a free, unique identifier\n"
+            "for publications. Each format (e-book, print, audiobook) needs its own number.\n\n"
+            "Format in this app: 10 or 13 digits, no hyphens or spaces.\n"
+            "Example: 9788301234567\n\n"
+            "How to get an ISBN in Poland (free of charge):\n"
+            "  1. Go to e-isbn.pl (National Library of Poland).\n"
+            "  2. Create a publisher account — individuals are welcome.\n"
+            "     Required: name, address, tax ID or national ID, e-mail.\n"
+            "  3. Apply for a block of numbers (minimum 10).\n"
+            "  4. Account activated usually within 1 business day;\n"
+            "     numbers assigned within a few business days.\n"
+            "  5. In the e-ISBN panel, assign a specific number to your publication.\n\n"
+            "This field is optional — EPUB will be created without an ISBN too."
+        ),
         "preview_placeholder": (
             "Preview will appear after conversion.\n\n"
             "The application shows chapter text. "
@@ -192,8 +290,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
         "preflight_err_title": "Cannot check DOCX",
         "preflight_err_msg": "Document read error:\n\n",
         "err_no_chapters": "No chapters found. Use Heading 1 / Nagłówek 1 style for chapter titles.",
-        "issue_tables": "The document contains tables. This converter does not transfer tables to EPUB, so content might be lost.",
-        "issue_inline_shapes": "The document contains inline images. This converter handles a separate cover image but does not transfer inline images from DOCX.",
         "issue_empty_h1": "One of the Heading 1 / Nagłówek 1 headings is empty.",
         "issue_h3_without_h2": "The document contains a Heading 3 / Nagłówek 3 without a preceding Heading 2.",
         "issue_no_chapters": "No chapters marked with Heading 1 / Nagłówek 1 style found. EPUB requires proper chapter structure.",
@@ -202,6 +298,19 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
             "The converter starts the EPUB from the first chapter, so this text might be skipped."
         ),
         "issue_empty_chapters": "These chapters have no body text under their heading: ",
+        "btn_batch": "Batch convert...",
+        "batch_title": "Batch DOCX Conversion",
+        "batch_select": "Select DOCX files for batch conversion",
+        "batch_start": "Convert All",
+        "batch_need_author": "Fill in Author and Publisher fields before batch conversion.",
+        "batch_need_cover": "Select a cover image before batch conversion.",
+        "batch_summary_ok": "Success: ",
+        "batch_summary_err": ", Errors: ",
+        "cover_warn_ratio": "Warning: cover proportions differ from the 2:3 standard (required by most stores).",
+        "cover_warn_res": "Warning: cover may be too small — recommended minimum width is 1200 px.",
+        "epubcheck_messages": "message(s)",
+        "label_file": "File:",
+        "label_error": "Error:",
     },
 }
 
@@ -210,37 +319,138 @@ def xml_escape(text: str) -> str:
     return html.escape(text or "", quote=False)
 
 
-def para_to_html(para) -> str:
-    """Konwertuje akapit DOCX na HTML z obsluga podstawowego formatowania."""
+# ---------------------------------------------------------------------------
+# DOCX → HTML conversion helpers
+# ---------------------------------------------------------------------------
+
+def _run_elem_to_html(r_elem, images: dict[str, bytes], part) -> str:
+    """Convert a single <w:r> XML element to HTML, extracting images if present."""
+    blips = r_elem.findall(f".//{_A_BLIP}")
+    if blips:
+        r_embed = blips[0].get(_R_EMBED)
+        if r_embed and r_embed in part.rels:
+            try:
+                img_part = part.rels[r_embed].target_part
+                blob = img_part.blob
+                ct = img_part.content_type
+                ext = ".png" if "png" in ct else ".jpg"
+                img_id = f"img{len(images) + 1:03d}{ext}"
+                images[img_id] = blob
+                return f'<img src="../images/{img_id}" alt=""/>'
+            except Exception:
+                pass
+        return ""
+
+    t_elems = r_elem.findall(_W_T)
+    text = xml_escape("".join((t.text or "") for t in t_elems))
+    if not text:
+        return ""
+
+    rPr = r_elem.find(_W_RPR)
+    bold      = rPr is not None and rPr.find(_W_B)      is not None
+    italic    = rPr is not None and rPr.find(_W_I)      is not None
+    underline = rPr is not None and rPr.find(_W_U)      is not None
+    strike    = rPr is not None and rPr.find(_W_STRIKE) is not None
+
+    if bold and italic:
+        text = f"<strong><em>{text}</em></strong>"
+    elif bold:
+        text = f"<strong>{text}</strong>"
+    elif italic:
+        text = f"<em>{text}</em>"
+    if underline:
+        text = f"<u>{text}</u>"
+    if strike:
+        text = f"<s>{text}</s>"
+    return text
+
+
+def para_to_html(
+    para,
+    images: dict[str, bytes],
+    fn_refs: list | None = None,
+    footnotes: dict[str, str] | None = None,
+) -> str:
+    """Convert a paragraph to HTML, handling formatting, inline images, hyperlinks, and footnotes."""
     parts = []
-    for run in para.runs:
-        text = xml_escape(run.text)
-        if not text:
-            continue
-        if run.bold and run.italic:
-            text = f"<strong><em>{text}</em></strong>"
-        elif run.bold:
-            text = f"<strong>{text}</strong>"
-        elif run.italic:
-            text = f"<em>{text}</em>"
-        parts.append(text)
+    part = para.part
+    for child in para._p:
+        if child.tag == _W_R:
+            ref_elem = child.find(f".//{_W_FOOTNOTE_REF}")
+            if ref_elem is not None:
+                fn_id = ref_elem.get(_W_FN_ID, "")
+                if fn_refs is not None and footnotes is not None and fn_id in footnotes:
+                    fn_refs.append((fn_id, footnotes[fn_id]))
+                parts.append(f'<sup><a epub:type="noteref" href="#fn-{fn_id}">[{fn_id}]</a></sup>')
+            else:
+                parts.append(_run_elem_to_html(child, images, part))
+        elif child.tag == _W_HYPERLINK:
+            r_id = child.get(_R_HYP)
+            href = ""
+            if r_id and r_id in part.rels:
+                try:
+                    href = xml_escape(part.rels[r_id].target_ref or "")
+                except Exception:
+                    pass
+            inner = "".join(_run_elem_to_html(r, images, part) for r in child.findall(_W_R))
+            if inner:
+                parts.append(f'<a href="{href}">{inner}</a>' if href else inner)
     return "".join(parts)
 
 
-def parse_docx(docx_bytes: bytes):
+def table_to_html(table) -> str:
+    rows = ["<table>"]
+    for i, row in enumerate(table.rows):
+        rows.append("<tr>")
+        for cell in row.cells:
+            tag = "th" if i == 0 else "td"
+            rows.append(f"  <{tag}>{xml_escape(cell.text.strip())}</{tag}>")
+        rows.append("</tr>")
+    rows.append("</table>")
+    return "\n".join(rows)
+
+
+def extract_footnotes(doc) -> dict[str, str]:
+    """Return {id_str: plain_text} for all numbered footnotes in the document."""
+    try:
+        fn_part = doc.part.part_related_by(_FOOTNOTES_RT)
+        result = {}
+        for fn in fn_part._element.findall(_docx_qn("w:footnote")):
+            fn_id = fn.get(_W_FN_ID, "")
+            if fn_id in ("-1", "0"):
+                continue
+            texts = [xml_escape(t.text) for t in fn.findall(f".//{_W_T}") if t.text]
+            result[fn_id] = "".join(texts)
+        return result
+    except Exception:
+        return {}
+
+
+def parse_docx(docx_bytes: bytes) -> tuple[list, dict[str, bytes]]:
+    """Parse DOCX and return (chapters, images).
+
+    chapters: list of (id, title, epub_type, role, body_html)
+    images:   dict of filename → bytes for all inline images
+    """
     doc = Document(io.BytesIO(docx_bytes))
-    chapters = []
-    cur_id = None
-    cur_title = None
-    cur_body = []
+    footnotes = extract_footnotes(doc)
+    chapters: list = []
+    images: dict[str, bytes] = {}
+    cur_id: str | None = None
+    cur_title: str | None = None
+    cur_body: list[str] = []
+    cur_fn_refs: list = []
     in_ul = False
     in_ol = False
     chapter_counter = 0
 
-    front_keywords = {"wstep", "wstęp", "przedmowa", "wprowadzenie", "preface", "introduction", "foreword", "prolog"}
-    back_keywords = {"zakonczenie", "zakończenie", "epilog", "podsumowanie", "conclusion", "afterword", "epilogue"}
+    front_kw = {"wstep", "wstęp", "przedmowa", "wprowadzenie", "preface", "introduction", "foreword", "prolog"}
+    back_kw  = {"zakonczenie", "zakończenie", "epilog", "podsumowanie", "conclusion", "afterword", "epilogue"}
 
-    def close_list(parts):
+    para_map  = {id(p._p): p for p in doc.paragraphs}
+    table_map = {id(t._tbl): t for t in doc.tables}
+
+    def close_list(parts: list[str]) -> None:
         nonlocal in_ul, in_ol
         if in_ul:
             parts.append("</ul>")
@@ -249,94 +459,114 @@ def parse_docx(docx_bytes: bytes):
             parts.append("</ol>")
             in_ol = False
 
-    def flush_chapter():
+    def flush_chapter() -> None:
         if cur_title is None:
             return
         close_list(cur_body)
+        if cur_fn_refs:
+            seen: set = set()
+            items: list[str] = []
+            for fn_id, fn_text in cur_fn_refs:
+                if fn_id not in seen:
+                    seen.add(fn_id)
+                    items.append(
+                        f'<aside id="fn-{fn_id}" epub:type="footnote" role="doc-footnote">'
+                        f"<p><sup>[{fn_id}]</sup> {fn_text}</p></aside>"
+                    )
+            cur_body.append(
+                '<section class="footnotes-section">\n' + "\n".join(items) + "\n</section>"
+            )
         key = html.unescape(cur_title).lower().strip()
-        if key in front_keywords:
+        if key in front_kw:
             epub_type, role = "frontmatter", "doc-preface"
-        elif key in back_keywords:
+        elif key in back_kw:
             epub_type, role = "backmatter", "doc-conclusion"
         else:
             epub_type, role = "chapter", "doc-chapter"
         chapters.append((cur_id, cur_title, epub_type, role, "\n".join(cur_body)))
 
-    for para in doc.paragraphs:
-        style_name = para.style.name if para.style else "Normal"
-        text = para.text.strip()
+    for child in doc.element.body:
+        if child.tag == _W_P:
+            para = para_map.get(id(child))
+            if para is None:
+                continue
 
-        is_h1 = any(name in style_name for name in ["Heading 1", "Nagłówek 1"])
-        is_h2 = any(name in style_name for name in ["Heading 2", "Nagłówek 2"])
-        is_h3 = any(name in style_name for name in ["Heading 3", "Nagłówek 3"])
-        is_quote = any(name in style_name for name in ["Quote", "Cytat", "Blockquote", "Intense Quote", "Intensywny cytat"])
-        is_bullet = any(name in style_name for name in ["List Bullet", "Lista wypunktowana", "List Paragraph"])
-        is_number = any(name in style_name for name in ["List Number", "Lista numerowana"])
+            style_name = para.style.name if para.style else "Normal"
+            text = para.text.strip()
 
-        if is_h1:
-            flush_chapter()
-            chapter_counter += 1
-            cur_id = "ch" + str(chapter_counter).zfill(2)
-            cur_title = xml_escape(text) if text else "Rozdzial"
-            cur_body = []
-            in_ul = False
-            in_ol = False
-        elif cur_title is None:
-            continue
-        elif is_h2:
-            close_list(cur_body)
-            cur_body.append("<h2>" + (para_to_html(para) or xml_escape(text)) + "</h2>")
-        elif is_h3:
-            close_list(cur_body)
-            cur_body.append("<h3>" + (para_to_html(para) or xml_escape(text)) + "</h3>")
-        elif is_quote:
-            close_list(cur_body)
-            cur_body.append("<blockquote><p>" + (para_to_html(para) or xml_escape(text)) + "</p></blockquote>")
-        elif is_bullet:
-            if not in_ul:
-                if in_ol:
-                    cur_body.append("</ol>")
-                    in_ol = False
-                cur_body.append("<ul>")
-                in_ul = True
-            cur_body.append("<li>" + (para_to_html(para) or xml_escape(text)) + "</li>")
-        elif is_number:
-            if not in_ol:
-                if in_ul:
-                    cur_body.append("</ul>")
-                    in_ul = False
-                cur_body.append("<ol>")
-                in_ol = True
-            cur_body.append("<li>" + (para_to_html(para) or xml_escape(text)) + "</li>")
-        elif text:
-            close_list(cur_body)
-            cur_body.append("<p>" + (para_to_html(para) or xml_escape(text)) + "</p>")
-        else:
-            close_list(cur_body)
+            is_h1     = any(n in style_name for n in ["Heading 1", "Nagłówek 1"])
+            is_h2     = any(n in style_name for n in ["Heading 2", "Nagłówek 2"])
+            is_h3     = any(n in style_name for n in ["Heading 3", "Nagłówek 3"])
+            is_quote  = any(n in style_name for n in ["Quote", "Cytat", "Blockquote", "Intense Quote", "Intensywny cytat"])
+            is_bullet = any(n in style_name for n in ["List Bullet", "Lista wypunktowana", "List Paragraph"])
+            is_number = any(n in style_name for n in ["List Number", "Lista numerowana"])
+
+            inner    = para_to_html(para, images, cur_fn_refs if cur_title else None, footnotes)
+            fallback = xml_escape(text)
+
+            if is_h1:
+                flush_chapter()
+                chapter_counter += 1
+                cur_id    = "ch" + str(chapter_counter).zfill(2)
+                cur_title = xml_escape(text) if text else "Rozdzial"
+                cur_body  = []
+                cur_fn_refs = []
+                in_ul = in_ol = False
+            elif cur_title is None:
+                continue
+            elif is_h2:
+                close_list(cur_body)
+                cur_body.append("<h2>" + (inner or fallback) + "</h2>")
+            elif is_h3:
+                close_list(cur_body)
+                cur_body.append("<h3>" + (inner or fallback) + "</h3>")
+            elif is_quote:
+                close_list(cur_body)
+                cur_body.append("<blockquote><p>" + (inner or fallback) + "</p></blockquote>")
+            elif is_bullet:
+                if not in_ul:
+                    if in_ol:
+                        cur_body.append("</ol>")
+                        in_ol = False
+                    cur_body.append("<ul>")
+                    in_ul = True
+                cur_body.append("<li>" + (inner or fallback) + "</li>")
+            elif is_number:
+                if not in_ol:
+                    if in_ul:
+                        cur_body.append("</ul>")
+                        in_ul = False
+                    cur_body.append("<ol>")
+                    in_ol = True
+                cur_body.append("<li>" + (inner or fallback) + "</li>")
+            elif text or inner:
+                close_list(cur_body)
+                cur_body.append("<p>" + (inner or fallback) + "</p>")
+            else:
+                close_list(cur_body)
+
+        elif child.tag == _W_TBL and cur_title is not None:
+            table = table_map.get(id(child))
+            if table is not None:
+                close_list(cur_body)
+                cur_body.append(table_to_html(table))
 
     flush_chapter()
-    return chapters
+    return chapters, images
 
 
 def inspect_docx_for_epub(docx_bytes: bytes, tr: dict | None = None) -> list[str]:
-    """Sprawdza, czy DOCX da sie bezpiecznie zamienic tym konwerterem na EPUB."""
     if tr is None:
         tr = TRANSLATIONS["pl"]
     issues = []
     doc = Document(io.BytesIO(docx_bytes))
 
-    if doc.tables:
-        issues.append(tr["issue_tables"])
-
-    if doc.inline_shapes:
-        issues.append(tr["issue_inline_shapes"])
-
     heading1_count = 0
     seen_heading1 = False
-    nonempty_before_first_heading = []
+    nonempty_before_first_heading: list[str] = []
     current_chapter_title = ""
     current_chapter_has_body = False
-    empty_chapters = []
+    empty_chapters: list[str] = []
     last_heading_level = 0
 
     for para in doc.paragraphs:
@@ -345,9 +575,9 @@ def inspect_docx_for_epub(docx_bytes: bytes, tr: dict | None = None) -> list[str
         if not text:
             continue
 
-        is_h1 = any(name in style_name for name in ["Heading 1", "Nagłówek 1"])
-        is_h2 = any(name in style_name for name in ["Heading 2", "Nagłówek 2"])
-        is_h3 = any(name in style_name for name in ["Heading 3", "Nagłówek 3"])
+        is_h1 = any(n in style_name for n in ["Heading 1", "Nagłówek 1"])
+        is_h2 = any(n in style_name for n in ["Heading 2", "Nagłówek 2"])
+        is_h3 = any(n in style_name for n in ["Heading 3", "Nagłówek 3"])
 
         if is_h1:
             if current_chapter_title and not current_chapter_has_body:
@@ -379,13 +609,10 @@ def inspect_docx_for_epub(docx_bytes: bytes, tr: dict | None = None) -> list[str
 
     if heading1_count == 0:
         issues.append(tr["issue_no_chapters"])
-
     if nonempty_before_first_heading:
         issues.append(tr["issue_text_before_h1"])
-
     if empty_chapters:
-        sample = ", ".join(empty_chapters[:5])
-        issues.append(tr["issue_empty_chapters"] + sample)
+        issues.append(tr["issue_empty_chapters"] + ", ".join(empty_chapters[:5]))
 
     return issues
 
@@ -400,7 +627,15 @@ CSS = (
     "ul,ol{margin:.4em 0 .4em 1.4em}li{margin:.2em 0}\n"
     "blockquote{margin:1em;padding:.5em 1em;border-left:4px solid #2a5298;"
     "background:#f4f7fc;font-style:italic;color:#333}\n"
-    "strong{font-weight:bold}em{font-style:italic}\n"
+    "strong{font-weight:bold}em{font-style:italic}u{text-decoration:underline}s{text-decoration:line-through}\n"
+    "table{border-collapse:collapse;width:100%;margin:1em 0}\n"
+    "th,td{border:1px solid #ccc;padding:.4em .6em;text-align:left}\n"
+    "th{background:#f0f4f8;font-weight:bold}\n"
+    "img{max-width:100%;height:auto;display:block;margin:.5em auto}\n"
+    "a{color:#2a5298}\n"
+    ".footnotes-section{border-top:1px solid #ccc;margin-top:2em;padding-top:.5em;"
+    "font-size:.85em;color:#444}\n"
+    ".footnotes-section aside{margin:.4em 0}\n"
 )
 
 
@@ -468,7 +703,7 @@ def make_nav(chapters, lang: str = "pl") -> bytes:
     items = ""
     for cid, title, _epub_type, _role, _body in chapters:
         items += '      <li><a href="content/' + cid + '.xhtml">' + title + "</a></li>\n"
-    toc_title = "Table of Contents" if lang == "en" else "Spis tresci"
+    toc_title = TOC_TITLES.get(lang, "Table of Contents")
     return e(
         '<?xml version="1.0" encoding="utf-8"?>\n'
         "<!DOCTYPE html>\n"
@@ -487,26 +722,40 @@ def make_nav(chapters, lang: str = "pl") -> bytes:
     )
 
 
-def make_opf(meta: dict, chapters, cover_mime: str, cover_ext: str, lang: str = "pl") -> bytes:
+def make_opf(
+    meta: dict,
+    chapters,
+    images: dict[str, bytes],
+    cover_mime: str,
+    cover_ext: str,
+    lang: str = "pl",
+) -> bytes:
     manifest_items = (
         '    <item id="nav" href="nav.xhtml" media-type="application/xhtml+xml" properties="nav"/>\n'
         '    <item id="css" href="styles/main.css" media-type="text/css"/>\n'
         '    <item id="cover-image" href="images/cover' + cover_ext + '" media-type="' + cover_mime + '" properties="cover-image"/>\n'
         '    <item id="cover-page" href="content/cover_page.xhtml" media-type="application/xhtml+xml"/>\n'
     )
+    for img_name in images:
+        ct = "image/png" if img_name.endswith(".png") else "image/jpeg"
+        img_id = re.sub(r"[^a-z0-9]", "-", img_name)
+        manifest_items += f'    <item id="{img_id}" href="images/{img_name}" media-type="{ct}"/>\n'
+
     spine = '    <itemref idref="cover-page" linear="yes"/>\n'
     for cid, _title, _epub_type, _role, _body in chapters:
         manifest_items += '    <item id="' + cid + '" href="content/' + cid + '.xhtml" media-type="application/xhtml+xml"/>\n'
         spine += '    <itemref idref="' + cid + '"/>\n'
 
     today = date.today().isoformat()
-    a11y_summary = (
-        "Digitally accessible publication. Semantic HTML structure, navigational table of contents, "
-        "alternative texts, complete metadata. Compliant with EPUB Accessibility 1.1 and WCAG 2.1 AA."
-        if lang == "en"
-        else "Publikacja dostepna cyfrowo. Semantyczna struktura HTML, nawigacyjny spis tresci, "
+    _A11Y_PL = (
+        "Publikacja dostepna cyfrowo. Semantyczna struktura HTML, nawigacyjny spis tresci, "
         "teksty alternatywne, kompletne metadane. Zgodna z EPUB Accessibility 1.1 i WCAG 2.1 AA."
     )
+    _A11Y_EN = (
+        "Digitally accessible publication. Semantic HTML structure, navigational table of contents, "
+        "alternative texts, complete metadata. Compliant with EPUB Accessibility 1.1 and WCAG 2.1 AA."
+    )
+    a11y_summary = _A11Y_PL if lang == "pl" else _A11Y_EN
     return e(
         '<?xml version="1.0" encoding="utf-8"?>\n'
         '<package xmlns="http://www.idpf.org/2007/opf"\n'
@@ -548,9 +797,20 @@ def make_opf(meta: dict, chapters, cover_mime: str, cover_ext: str, lang: str = 
     )
 
 
-def build_epub(meta: dict, chapters, cover_bytes: bytes, cover_ext: str, lang: str = "pl") -> bytes:
+def build_epub(
+    meta: dict,
+    chapters,
+    images: dict[str, bytes],
+    cover_bytes: bytes,
+    cover_ext: str,
+    lang: str = "pl",
+) -> bytes:
     cover_mime = "image/jpeg" if cover_ext.lower() in (".jpg", ".jpeg") else "image/png"
-    cover_alt = "Cover: " + meta["title"] + ", " + meta["author"] if lang == "en" else "Okladka: " + meta["title"] + ", autor " + meta["author"]
+    cover_alt = (
+        "Cover: " + meta["title"] + ", " + meta["author"]
+        if lang == "en"
+        else "Okladka: " + meta["title"] + ", autor " + meta["author"]
+    )
 
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
@@ -558,12 +818,13 @@ def build_epub(meta: dict, chapters, cover_bytes: bytes, cover_ext: str, lang: s
         mimetype.compress_type = zipfile.ZIP_STORED
         zf.writestr(mimetype, "application/epub+zip")
         zf.writestr("META-INF/container.xml", make_container())
-        zf.writestr("OEBPS/content.opf", make_opf(meta, chapters, cover_mime, cover_ext, lang))
+        zf.writestr("OEBPS/content.opf", make_opf(meta, chapters, images, cover_mime, cover_ext, lang))
         zf.writestr("OEBPS/nav.xhtml", make_nav(chapters, lang))
         zf.writestr("OEBPS/styles/main.css", e(CSS))
         zf.writestr("OEBPS/images/cover" + cover_ext, cover_bytes)
         zf.writestr("OEBPS/content/cover_page.xhtml", make_cover_xhtml(cover_alt, cover_ext, lang))
-
+        for img_name, img_bytes in images.items():
+            zf.writestr("OEBPS/images/" + img_name, img_bytes)
         for cid, title, epub_type, role, body in chapters:
             zf.writestr("OEBPS/content/" + cid + ".xhtml", make_chapter_xhtml(title, epub_type, role, body, lang))
     return buffer.getvalue()
@@ -583,6 +844,9 @@ def validate_epub(epub_bytes: bytes) -> tuple[bool, list]:
             pass
 
 
+_CONFIG_FILE = Path.home() / ".epub_converter_config.json"
+
+
 def safe_filename(title: str) -> str:
     name = re.sub(r"[^\w\-]+", "-", title.lower(), flags=re.UNICODE).strip("-")
     return (name or "ebook") + ".epub"
@@ -594,8 +858,10 @@ def default_output_dir() -> Path:
 
 
 def html_to_plain_text(fragment: str) -> str:
-    text = re.sub(r"</(p|h1|h2|h3|li|blockquote)>", "\n", fragment)
+    text = re.sub(r"</(p|h1|h2|h3|li|blockquote|tr)>", "\n", fragment)
+    text = re.sub(r"</(table|ul|ol)>", "\n", text)
     text = re.sub(r"<li>", "- ", text)
+    text = re.sub(r"<t[hd][^>]*>", "  ", text)
     text = re.sub(r"<[^>]+>", "", text)
     text = html.unescape(text)
     text = re.sub(r"\n{3,}", "\n\n", text)
@@ -615,6 +881,7 @@ def open_path(path: Path) -> None:
 class ConversionResult:
     meta: dict
     chapters: list
+    images: dict
     epub_bytes: bytes
     cover_bytes: bytes
     cover_ext: str
@@ -623,38 +890,90 @@ class ConversionResult:
     messages: list
 
 
-class EpubConverterApp(tk.Tk):
+class EpubConverterApp(_BaseApp):
     def __init__(self):
         super().__init__()
-        self.title(APP_TITLE)
+        self.title(f"{APP_TITLE} v{APP_VERSION}")
         self.geometry("1120x760")
-        self.minsize(980, 680)
+        self.minsize(900, 620)
 
-        self.ui_lang_var = tk.StringVar(value="pl")
+        self.ui_lang_var  = tk.StringVar(value="pl")
         self.doc_lang_var = tk.StringVar(value="pl")
 
-        self.docx_path = tk.StringVar()
-        self.cover_path = tk.StringVar()
+        self.docx_path   = tk.StringVar()
+        self.cover_path  = tk.StringVar()
         self.output_path = tk.StringVar(value=str(default_output_dir() / "ebook.epub"))
-        self.title_var = tk.StringVar()
-        self.author_var = tk.StringVar()
+        self.title_var     = tk.StringVar()
+        self.author_var    = tk.StringVar()
         self.publisher_var = tk.StringVar()
-        self.year_var = tk.StringVar(value=str(date.today().year))
-        self.isbn_var = tk.StringVar()
-        self.status_var = tk.StringVar(value=TRANSLATIONS["pl"]["status_ready"])
+        self.year_var      = tk.StringVar(value=str(date.today().year))
+        self.isbn_var      = tk.StringVar()
+        self.status_var    = tk.StringVar(value=TRANSLATIONS["pl"]["status_ready"])
 
-        self.cover_preview = None
+        self.cover_preview: ImageTk.PhotoImage | None = None
         self.result: ConversionResult | None = None
         self.preview_html_path: Path | None = None
         self.convert_buttons: list[ttk.Button] = []
         self._tw: dict[str, tk.Widget] = {}
         self._doc_lang_codes: list[str] = [code for _, code in DOC_LANGUAGES]
+        self._output_manually_set = False
+
+        _cfg = self._load_config()
+        self._last_docx_dir:  str = _cfg.get("last_docx_dir", "")
+        self._last_cover_dir: str = _cfg.get("last_cover_dir", "")
+        self._profile_doc_lang: str = _cfg.get("profile_doc_lang", "pl")
+
+        if _cfg.get("profile_author"):
+            self.author_var.set(_cfg["profile_author"])
+        if _cfg.get("profile_publisher"):
+            self.publisher_var.set(_cfg["profile_publisher"])
+        if _cfg.get("profile_year"):
+            self.year_var.set(_cfg["profile_year"])
+
+        self.title_var.trace_add("write", self._on_title_change)
 
         self._configure_style()
         self._build_ui()
 
+    # ------------------------------------------------------------------
+    # Config persistence
+    # ------------------------------------------------------------------
+
+    def _load_config(self) -> dict:
+        try:
+            return json.loads(_CONFIG_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            return {}
+
+    def _save_config(self, data: dict) -> None:
+        try:
+            _CONFIG_FILE.write_text(json.dumps(data), encoding="utf-8")
+        except Exception:
+            pass
+
+    def _update_config(self, updates: dict) -> None:
+        cfg = self._load_config()
+        cfg.update(updates)
+        self._save_config(cfg)
+
+    def _save_profile(self) -> None:
+        self._update_config({
+            "profile_author":    self.author_var.get().strip(),
+            "profile_publisher": self.publisher_var.get().strip(),
+            "profile_year":      self.year_var.get().strip(),
+            "profile_doc_lang":  self.doc_lang_var.get(),
+        })
+
+    # ------------------------------------------------------------------
+    # Translations
+    # ------------------------------------------------------------------
+
     def t(self, key: str) -> str:
         return TRANSLATIONS[self.ui_lang_var.get()].get(key, key)
+
+    # ------------------------------------------------------------------
+    # Styles
+    # ------------------------------------------------------------------
 
     def _configure_style(self):
         style = ttk.Style(self)
@@ -719,17 +1038,49 @@ class EpubConverterApp(tk.Tk):
             bordercolor=NAVY_BORDER,
         )
         style.map("TCombobox", fieldbackground=[("readonly", NAVY_INPUT)], foreground=[("readonly", NAVY_BG)])
+        style.configure(
+            "TProgressbar",
+            troughcolor=NAVY_BG,
+            background=NAVY_ACCENT,
+            bordercolor=NAVY_BORDER,
+            lightcolor=NAVY_ACCENT,
+            darkcolor=NAVY_ACCENT,
+        )
+
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
 
     def _build_ui(self):
-        root = ttk.Frame(self, padding=16)
-        root.pack(fill=tk.BOTH, expand=True)
+        canvas = tk.Canvas(self, bg=NAVY_BG, highlightthickness=0)
+        vscroll = ttk.Scrollbar(self, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=vscroll.set)
+        vscroll.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        root = ttk.Frame(canvas, padding=16)
+        _root_id = canvas.create_window((0, 0), window=root, anchor=tk.NW)
+
+        def _on_frame_configure(event):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+
+        def _on_canvas_configure(event):
+            canvas.itemconfig(_root_id, width=event.width)
+
+        def _on_mousewheel(event):
+            if not isinstance(event.widget, (tk.Text, tk.Listbox)):
+                canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        root.bind("<Configure>", _on_frame_configure)
+        canvas.bind("<Configure>", _on_canvas_configure)
+        canvas.bind_all("<MouseWheel>", _on_mousewheel)
 
         header = ttk.Frame(root)
         header.pack(fill=tk.X, pady=(0, 12))
 
         title_group = ttk.Frame(header)
         title_group.pack(side=tk.LEFT, fill=tk.X, expand=True)
-        ttk.Label(title_group, text=APP_TITLE, style="Title.TLabel").pack(anchor=tk.W)
+        ttk.Label(title_group, text=f"{APP_TITLE} v{APP_VERSION}", style="Title.TLabel").pack(anchor=tk.W)
         self._tw["app_subtitle"] = ttk.Label(title_group, text=self.t("app_subtitle"))
         self._tw["app_subtitle"].pack(anchor=tk.W, pady=(4, 0))
         self._tw["app_author_label"] = ttk.Label(title_group, text=self.t("app_author_label"))
@@ -745,7 +1096,7 @@ class EpubConverterApp(tk.Tk):
         main = ttk.PanedWindow(root, orient=tk.HORIZONTAL)
         main.pack(fill=tk.BOTH, expand=True)
 
-        left = ttk.Frame(main, style="Card.TFrame", padding=14)
+        left  = ttk.Frame(main, style="Card.TFrame", padding=14)
         right = ttk.Frame(main, style="Card.TFrame", padding=14)
         main.add(left, weight=1)
         main.add(right, weight=2)
@@ -757,7 +1108,10 @@ class EpubConverterApp(tk.Tk):
         bottom.pack(fill=tk.X, pady=(12, 0))
         self._add_convert_button(bottom, side=tk.RIGHT, ipadx=24, ipady=7)
 
-        ttk.Label(root, textvariable=self.status_var, style="Status.TLabel").pack(fill=tk.X, pady=(12, 0))
+        self.progress = ttk.Progressbar(root, mode="indeterminate", length=100)
+        self.progress.pack(fill=tk.X, pady=(8, 0))
+
+        ttk.Label(root, textvariable=self.status_var, style="Status.TLabel").pack(fill=tk.X, pady=(4, 0))
 
     def _add_convert_button(self, parent, **pack_options):
         button = ttk.Button(
@@ -775,11 +1129,19 @@ class EpubConverterApp(tk.Tk):
         self._tw["section_metadata"] = ttk.Label(parent, text=self.t("section_metadata"), style="Section.TLabel")
         self._tw["section_metadata"].pack(anchor=tk.W)
 
-        self._tw["field_title"] = self._entry(parent, "field_title", self.title_var)
-        self._tw["field_author"] = self._entry(parent, "field_author", self.author_var)
+        self._tw["field_title"]     = self._entry(parent, "field_title",     self.title_var)
+        self._tw["field_author"]    = self._entry(parent, "field_author",    self.author_var)
         self._tw["field_publisher"] = self._entry(parent, "field_publisher", self.publisher_var)
-        self._tw["field_year"] = self._entry(parent, "field_year", self.year_var)
-        self._tw["field_isbn"] = self._entry(parent, "field_isbn", self.isbn_var)
+        self._tw["field_year"]      = self._entry(parent, "field_year",      self.year_var)
+        _isbn_hdr = ttk.Frame(parent, style="Card.TFrame")
+        _isbn_hdr.pack(fill=tk.X, pady=(8, 2))
+        self._tw["field_isbn"] = ttk.Label(_isbn_hdr, text=self.t("field_isbn"), style="Card.TLabel")
+        self._tw["field_isbn"].pack(side=tk.LEFT)
+        self._tw["isbn_help_btn"] = ttk.Button(
+            _isbn_hdr, text="?", width=2, style="Lang.TButton", command=self._show_isbn_help
+        )
+        self._tw["isbn_help_btn"].pack(side=tk.RIGHT)
+        ttk.Entry(parent, textvariable=self.isbn_var).pack(fill=tk.X)
 
         self._tw["field_desc"] = ttk.Label(parent, text=self.t("field_desc"), style="Card.TLabel")
         self._tw["field_desc"].pack(anchor=tk.W, pady=(8, 2))
@@ -791,7 +1153,12 @@ class EpubConverterApp(tk.Tk):
         self._tw["section_lang_doc"].pack(anchor=tk.W)
         lang_display_values = [name for name, _ in DOC_LANGUAGES]
         self.doc_lang_combo = ttk.Combobox(parent, values=lang_display_values, state="readonly")
-        self.doc_lang_combo.current(0)
+        saved_lang = getattr(self, "_profile_doc_lang", "pl")
+        if saved_lang in self._doc_lang_codes:
+            self.doc_lang_combo.current(self._doc_lang_codes.index(saved_lang))
+            self.doc_lang_var.set(saved_lang)
+        else:
+            self.doc_lang_combo.current(0)
         self.doc_lang_combo.pack(fill=tk.X, pady=(4, 0))
         self.doc_lang_combo.bind("<<ComboboxSelected>>", self._on_doc_lang_change)
 
@@ -799,14 +1166,16 @@ class EpubConverterApp(tk.Tk):
         self._tw["section_files"] = ttk.Label(parent, text=self.t("section_files"), style="Section.TLabel")
         self._tw["section_files"].pack(anchor=tk.W)
         self._tw["field_docx"], self._tw["btn_docx"] = self._path_picker(
-            parent, "field_docx", self.docx_path, self.pick_docx
+            parent, "field_docx", self.docx_path, self.pick_docx, dnd_handler=self._dnd_docx
         )
         self._tw["field_cover"], self._tw["btn_cover"] = self._path_picker(
-            parent, "field_cover", self.cover_path, self.pick_cover
+            parent, "field_cover", self.cover_path, self.pick_cover, dnd_handler=self._dnd_cover
         )
 
         self.cover_label = ttk.Label(parent, text=self.t("no_cover_preview"), style="Card.TLabel")
         self.cover_label.pack(anchor=tk.W, pady=(8, 0))
+        self.cover_warn_label = ttk.Label(parent, text="", style="Card.TLabel", foreground="#e07000")
+        self.cover_warn_label.pack(anchor=tk.W)
 
         ttk.Separator(parent).pack(fill=tk.X, pady=14)
         self._tw["section_save"] = ttk.Label(parent, text=self.t("section_save"), style="Section.TLabel")
@@ -816,7 +1185,9 @@ class EpubConverterApp(tk.Tk):
         )
 
         form_button = self._add_convert_button(parent)
-        form_button.pack(fill=tk.X, pady=(16, 6), ipady=7)
+        form_button.pack(fill=tk.X, pady=(16, 2), ipady=7)
+        self._tw["btn_batch"] = ttk.Button(parent, text=self.t("btn_batch"), command=self.open_batch_dialog)
+        self._tw["btn_batch"].pack(fill=tk.X, pady=(0, 6))
 
         actions = ttk.Frame(parent, style="Card.TFrame")
         actions.pack(fill=tk.X, pady=(8, 0))
@@ -901,19 +1272,28 @@ class EpubConverterApp(tk.Tk):
         ttk.Entry(parent, textvariable=variable).pack(fill=tk.X)
         return lbl
 
-    def _path_picker(self, parent, label_key: str, variable, command) -> tuple[ttk.Label, ttk.Button]:
+    def _path_picker(
+        self, parent, label_key: str, variable, command, dnd_handler=None
+    ) -> tuple[ttk.Label, ttk.Button]:
         lbl = ttk.Label(parent, text=self.t(label_key), style="Card.TLabel")
         lbl.pack(anchor=tk.W, pady=(8, 2))
         row = ttk.Frame(parent, style="Card.TFrame")
         row.pack(fill=tk.X)
-        ttk.Entry(row, textvariable=variable).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        entry = ttk.Entry(row, textvariable=variable)
+        entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        if _HAS_DND and dnd_handler is not None:
+            entry.drop_target_register(DND_FILES)  # type: ignore[attr-defined]
+            entry.dnd_bind("<<Drop>>", dnd_handler)  # type: ignore[attr-defined]
         btn = ttk.Button(row, text=self.t("btn_pick"), command=command)
         btn.pack(side=tk.LEFT, padx=(8, 0))
         return lbl, btn
 
+    # ------------------------------------------------------------------
+    # Language switching
+    # ------------------------------------------------------------------
+
     def _toggle_ui_lang(self):
-        new_lang = "en" if self.ui_lang_var.get() == "pl" else "pl"
-        self.ui_lang_var.set(new_lang)
+        self.ui_lang_var.set("en" if self.ui_lang_var.get() == "pl" else "pl")
         self._apply_language()
 
     def _apply_language(self):
@@ -928,7 +1308,7 @@ class EpubConverterApp(tk.Tk):
             "field_year", "field_isbn", "field_desc", "section_lang_doc",
             "section_files", "field_docx", "field_cover",
             "section_save", "field_output",
-            "section_preview", "toc_label",
+            "section_preview", "toc_label", "btn_batch",
         ]
         for key in label_keys:
             if key in self._tw:
@@ -957,31 +1337,78 @@ class EpubConverterApp(tk.Tk):
             self.cover_label.configure(text=tr["no_cover_preview"])
 
     def _on_doc_lang_change(self, _event):
-        idx = self.doc_lang_combo.current()
-        self.doc_lang_var.set(self._doc_lang_codes[idx])
+        self.doc_lang_var.set(self._doc_lang_codes[self.doc_lang_combo.current()])
+
+    # ------------------------------------------------------------------
+    # Auto output filename from title
+    # ------------------------------------------------------------------
+
+    def _show_isbn_help(self):
+        self.show_issue_window(self.t("isbn_help_title"), self.t("isbn_help_text"))
+
+    def _on_title_change(self, *_):
+        if self._output_manually_set:
+            return
+        title = self.title_var.get().strip()
+        if not title:
+            return
+        current = self.output_path.get()
+        try:
+            out_dir = Path(current).parent
+        except Exception:
+            out_dir = default_output_dir()
+        self.output_path.set(str(out_dir / safe_filename(title)))
+
+    # ------------------------------------------------------------------
+    # File pickers & DnD
+    # ------------------------------------------------------------------
 
     def pick_docx(self):
+        init_dir = self._last_docx_dir or str(default_output_dir())
         path = filedialog.askopenfilename(
-            title=self.t("dlg_pick_docx"), filetypes=[("DOCX", "*.docx")]
+            title=self.t("dlg_pick_docx"),
+            initialdir=init_dir,
+            filetypes=[("DOCX", "*.docx")],
         )
         if path:
-            self.docx_path.set(path)
+            self._set_docx(path)
+
+    def _dnd_docx(self, event):
+        path = event.data.strip().strip("{}")
+        self._set_docx(path)
+
+    def _set_docx(self, path: str):
+        self.docx_path.set(path)
+        self._last_docx_dir = str(Path(path).parent)
+        self._update_config({"last_docx_dir": self._last_docx_dir})
 
     def pick_cover(self):
+        init_dir = self._last_cover_dir or self._last_docx_dir or str(default_output_dir())
         path = filedialog.askopenfilename(
-            title=self.t("dlg_pick_cover"), filetypes=[("Images / Obrazy", "*.png *.jpg *.jpeg")]
+            title=self.t("dlg_pick_cover"),
+            initialdir=init_dir,
+            filetypes=[("Images / Obrazy", "*.png *.jpg *.jpeg")],
         )
         if path:
-            self.cover_path.set(path)
-            self.load_cover_preview(Path(path))
+            self._set_cover(path)
+
+    def _dnd_cover(self, event):
+        path = event.data.strip().strip("{}")
+        self._set_cover(path)
+
+    def _set_cover(self, path: str):
+        self.cover_path.set(path)
+        self._last_cover_dir = str(Path(path).parent)
+        self._update_config({"last_cover_dir": self._last_cover_dir})
+        self.load_cover_preview(Path(path))
 
     def pick_output_path(self):
         current = self.output_path.get()
         try:
-            init_dir = str(Path(current).parent) if current else str(default_output_dir())
+            init_dir  = str(Path(current).parent) if current else str(default_output_dir())
             init_file = Path(current).name if current else "ebook.epub"
         except Exception:
-            init_dir = str(default_output_dir())
+            init_dir  = str(default_output_dir())
             init_file = "ebook.epub"
         path = filedialog.asksaveasfilename(
             title=self.t("dlg_pick_output"),
@@ -992,15 +1419,28 @@ class EpubConverterApp(tk.Tk):
         )
         if path:
             self.output_path.set(path)
+            self._output_manually_set = True
 
     def load_cover_preview(self, path: Path):
         try:
             image = Image.open(path)
+            orig_w, orig_h = image.size
             image.thumbnail((160, 220))
             self.cover_preview = ImageTk.PhotoImage(image)
             self.cover_label.configure(image=self.cover_preview, text="")
+            warnings = []
+            if orig_h > 0 and abs(orig_w / orig_h - 2 / 3) > 0.10:
+                warnings.append(self.t("cover_warn_ratio"))
+            if orig_w < 1200:
+                warnings.append(self.t("cover_warn_res"))
+            self.cover_warn_label.configure(text="\n".join(warnings))
         except Exception as exc:
             self.cover_label.configure(image="", text=self.t("cover_load_error") + str(exc))
+            self.cover_warn_label.configure(text="")
+
+    # ------------------------------------------------------------------
+    # Validation
+    # ------------------------------------------------------------------
 
     def validate_input(self) -> bool:
         missing = []
@@ -1027,24 +1467,22 @@ class EpubConverterApp(tk.Tk):
             )
             return False
 
-        year = self.year_var.get().strip()
-        if not re.fullmatch(r"\d{4}", year):
+        if not re.fullmatch(r"\d{4}", self.year_var.get().strip()):
             self.show_issue_window(self.t("err_year_title"), self.t("err_year_msg"))
+            return False
+
+        isbn = self.isbn_var.get().strip()
+        if isbn and not re.fullmatch(r"\d{10}(\d{3})?", isbn):
+            self.show_issue_window(self.t("err_isbn_title"), self.t("err_isbn_msg"))
             return False
 
         try:
             with Image.open(Path(self.cover_path.get())) as image:
                 if image.format not in {"PNG", "JPEG"}:
-                    self.show_issue_window(
-                        self.t("err_cover_format_title"),
-                        self.t("err_cover_format_msg"),
-                    )
+                    self.show_issue_window(self.t("err_cover_format_title"), self.t("err_cover_format_msg"))
                     return False
         except Exception as exc:
-            self.show_issue_window(
-                self.t("err_cover_open_title"),
-                self.t("err_cover_open_msg") + str(exc),
-            )
+            self.show_issue_window(self.t("err_cover_open_title"), self.t("err_cover_open_msg") + str(exc))
             return False
 
         return True
@@ -1055,17 +1493,12 @@ class EpubConverterApp(tk.Tk):
             docx_bytes = Path(self.docx_path.get()).read_bytes()
             issues = inspect_docx_for_epub(docx_bytes, tr)
         except Exception as exc:
-            self.show_issue_window(
-                self.t("preflight_err_title"),
-                self.t("preflight_err_msg") + str(exc),
-            )
+            self.show_issue_window(self.t("preflight_err_title"), self.t("preflight_err_msg") + str(exc))
             return False
-
         if issues:
             self.show_issue_window(
                 self.t("preflight_title"),
-                self.t("preflight_msg")
-                + "\n\n".join(f"{idx}. {issue}" for idx, issue in enumerate(issues, 1)),
+                self.t("preflight_msg") + "\n\n".join(f"{i}. {issue}" for i, issue in enumerate(issues, 1)),
             )
             return False
         return True
@@ -1096,6 +1529,10 @@ class EpubConverterApp(tk.Tk):
         ttk.Button(frame, text=self.t("btn_ok"), command=window.destroy).pack(anchor=tk.E, pady=(12, 0))
         window.focus_set()
 
+    # ------------------------------------------------------------------
+    # Conversion
+    # ------------------------------------------------------------------
+
     def convert(self):
         if not self.validate_input():
             return
@@ -1104,8 +1541,8 @@ class EpubConverterApp(tk.Tk):
         self._set_convert_buttons_state(tk.DISABLED)
         self.status_var.set(self.t("converting"))
         self.result_label.configure(text=self.t("converting"))
-        thread = threading.Thread(target=self._convert_worker, daemon=True)
-        thread.start()
+        self.progress.start(10)
+        threading.Thread(target=self._convert_worker, daemon=True).start()
 
     def _set_convert_buttons_state(self, state):
         for button in self.convert_buttons:
@@ -1113,9 +1550,9 @@ class EpubConverterApp(tk.Tk):
 
     def _convert_worker(self):
         try:
-            docx_path = Path(self.docx_path.get())
+            docx_path  = Path(self.docx_path.get())
             cover_path = Path(self.cover_path.get())
-            doc_lang = self.doc_lang_var.get()
+            doc_lang   = self.doc_lang_var.get()
 
             saved_path = Path(self.output_path.get()).expanduser()
             if not saved_path.suffix:
@@ -1123,39 +1560,57 @@ class EpubConverterApp(tk.Tk):
             saved_path.parent.mkdir(parents=True, exist_ok=True)
 
             meta = {
-                "title": self.title_var.get().strip(),
-                "author": self.author_var.get().strip(),
-                "publisher": self.publisher_var.get().strip() or self.author_var.get().strip(),
-                "year": self.year_var.get().strip() or str(date.today().year),
-                "isbn": self.isbn_var.get().strip(),
+                "title":       self.title_var.get().strip(),
+                "author":      self.author_var.get().strip(),
+                "publisher":   self.publisher_var.get().strip() or self.author_var.get().strip(),
+                "year":        self.year_var.get().strip() or str(date.today().year),
+                "isbn":        self.isbn_var.get().strip(),
                 "description": self.desc_text.get("1.0", tk.END).strip(),
             }
 
-            chapters = parse_docx(docx_path.read_bytes())
+            chapters, images = parse_docx(docx_path.read_bytes())
             if not chapters:
                 raise ValueError(self.t("err_no_chapters"))
 
             cover_bytes = cover_path.read_bytes()
-            cover_ext = cover_path.suffix.lower()
-            epub_bytes = build_epub(meta, chapters, cover_bytes, cover_ext, lang=doc_lang)
+            cover_ext   = cover_path.suffix.lower()
+            epub_bytes  = build_epub(meta, chapters, images, cover_bytes, cover_ext, lang=doc_lang)
             saved_path.write_bytes(epub_bytes)
             valid, messages = validate_epub(epub_bytes)
 
-            result = ConversionResult(meta, chapters, epub_bytes, cover_bytes, cover_ext, saved_path, valid, messages)
+            result = ConversionResult(meta, chapters, images, epub_bytes, cover_bytes, cover_ext, saved_path, valid, messages)
             preview_html_path = self.write_preview_html(result)
             self.after(0, lambda: self.show_result(result, preview_html_path))
         except Exception as exc:
             self.after(0, lambda: self.show_error(exc))
 
     def write_preview_html(self, result: ConversionResult) -> Path:
+        import base64
+
+        lang = self.ui_lang_var.get()
+        tr   = TRANSLATIONS.get(lang, TRANSLATIONS["en"])
+
+        # Pre-build data URIs so inline images render in the browser (temp dir has no images folder)
+        data_uris: dict[str, str] = {}
+        for img_name, img_bytes in result.images.items():
+            mime = "image/png" if img_name.endswith(".png") else "image/jpeg"
+            data_uris[img_name] = f"data:{mime};base64,{base64.b64encode(img_bytes).decode()}"
+
+        def _fix_img_src(body: str) -> str:
+            def _replace(m: re.Match) -> str:
+                key = m.group(1).split("/")[-1]
+                return f'src="{data_uris.get(key, m.group(1))}"'
+            return re.sub(r'src="(\.\./images/[^"]+)"', _replace, body)
+
         parts = [
-            "<!doctype html><html lang='pl'><head><meta charset='utf-8'><title>Podglad EPUB</title>",
+            f"<!doctype html><html lang='{lang}'><head><meta charset='utf-8'>"
+            f"<title>{tr['preview_html_title']}</title>",
             "<style>" + CSS + "</style></head><body>",
             "<h1>" + xml_escape(result.meta["title"]) + "</h1>",
-            "<p><strong>Autor:</strong> " + xml_escape(result.meta["author"]) + "</p>",
+            "<p><strong>" + tr["author_label"] + ":</strong> " + xml_escape(result.meta["author"]) + "</p>",
         ]
         for _cid, title, _epub_type, _role, body in result.chapters:
-            parts.append("<hr><h1>" + title + "</h1>" + body)
+            parts.append("<hr><h1>" + title + "</h1>" + _fix_img_src(body))
         parts.append("</body></html>")
         path = Path(tempfile.gettempdir()) / "docx_epub_converter_preview.html"
         path.write_text("\n".join(parts), encoding="utf-8")
@@ -1164,19 +1619,22 @@ class EpubConverterApp(tk.Tk):
     def show_result(self, result: ConversionResult, preview_html_path: Path):
         self.result = result
         self.preview_html_path = preview_html_path
+        self._save_profile()
+        self.progress.stop()
         self._set_convert_buttons_state(tk.NORMAL)
         self.open_file_button.configure(state=tk.NORMAL)
         self.open_folder_button.configure(state=tk.NORMAL)
         self.open_html_button.configure(state=tk.NORMAL)
 
-        lang = self.ui_lang_var.get()
         validation = (
             "EpubCheck: OK"
             if result.valid
-            else f"EpubCheck: {len(result.messages)} " + ("message(s)" if lang == "en" else "komunikat(ow)")
+            else f"EpubCheck: {len(result.messages)} " + self.t("epubcheck_messages")
         )
         self.status_var.set(self.t("status_done") + str(result.saved_path))
-        self.result_label.configure(text=validation + "\n" + ("File: " if lang == "en" else "Plik: ") + str(result.saved_path))
+        self.result_label.configure(
+            text=validation + "\n" + self.t("label_file") + " " + str(result.saved_path)
+        )
 
         self.chapter_list.delete(0, tk.END)
         for index, (_cid, title, _epub_type, _role, _body) in enumerate(result.chapters, 1):
@@ -1191,9 +1649,10 @@ class EpubConverterApp(tk.Tk):
             messagebox.showinfo(APP_TITLE, self.t("info_saved") + str(result.saved_path))
 
     def show_error(self, exc: Exception):
+        self.progress.stop()
         self._set_convert_buttons_state(tk.NORMAL)
         self.status_var.set(self.t("status_error"))
-        self.result_label.configure(text=("Error: " if self.ui_lang_var.get() == "en" else "Blad: ") + str(exc))
+        self.result_label.configure(text=self.t("label_error") + " " + str(exc))
         messagebox.showerror(APP_TITLE, str(exc))
 
     def on_chapter_select(self, _event):
@@ -1222,6 +1681,111 @@ class EpubConverterApp(tk.Tk):
     def open_html_preview(self):
         if self.preview_html_path and self.preview_html_path.exists():
             webbrowser.open(self.preview_html_path.as_uri())
+
+    # ------------------------------------------------------------------
+    # Batch conversion
+    # ------------------------------------------------------------------
+
+    def open_batch_dialog(self):
+        if not self.author_var.get().strip():
+            messagebox.showwarning(APP_TITLE, self.t("batch_need_author"))
+            return
+        if not Path(self.cover_path.get()).is_file():
+            messagebox.showwarning(APP_TITLE, self.t("batch_need_cover"))
+            return
+        paths = filedialog.askopenfilenames(
+            title=self.t("batch_select"),
+            initialdir=self._last_docx_dir or str(default_output_dir()),
+            filetypes=[("DOCX", "*.docx")],
+        )
+        if paths:
+            self._run_batch(list(paths))
+
+    def _run_batch(self, docx_paths: list[str]):
+        win = tk.Toplevel(self)
+        win.title(self.t("batch_title"))
+        win.configure(background=NAVY_BG)
+        win.geometry("680x500")
+        win.transient(self)
+
+        frame = ttk.Frame(win, padding=16)
+        frame.pack(fill=tk.BOTH, expand=True)
+        ttk.Label(frame, text=self.t("batch_title"), style="Section.TLabel").pack(anchor=tk.W, pady=(0, 8))
+
+        list_frame = ttk.Frame(frame)
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        status_list = tk.Listbox(
+            list_frame, width=72, height=16,
+            bg=NAVY_INPUT, fg=NAVY_BG, font=("Segoe UI", 9),
+            selectbackground=NAVY_ACCENT, selectforeground="#ffffff",
+            relief=tk.SOLID, borderwidth=1,
+        )
+        status_list.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        sb = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=status_list.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        status_list.configure(yscrollcommand=sb.set)
+        for p in docx_paths:
+            status_list.insert(tk.END, f"[ ] {Path(p).name}")
+
+        progress = ttk.Progressbar(frame, mode="determinate", maximum=len(docx_paths))
+        progress.pack(fill=tk.X, pady=(8, 4))
+        summary_var = tk.StringVar(value="")
+        ttk.Label(frame, textvariable=summary_var, style="Card.TLabel").pack(anchor=tk.W)
+        close_btn = ttk.Button(frame, text=self.t("btn_ok"), command=win.destroy, state=tk.DISABLED)
+        close_btn.pack(anchor=tk.E, pady=(8, 0))
+
+        def upd(idx, symbol, text):
+            status_list.delete(idx)
+            status_list.insert(idx, f"{symbol} {text}")
+
+        def worker():
+            ok = err = 0
+            cover_path = Path(self.cover_path.get())
+            cover_ext = cover_path.suffix.lower()
+            try:
+                cover_bytes = cover_path.read_bytes()
+            except Exception as exc:
+                win.after(0, lambda: summary_var.set(f"Cover error: {exc}"))
+                win.after(0, lambda: close_btn.configure(state=tk.NORMAL))
+                return
+            doc_lang = self.doc_lang_var.get()
+
+            for i, docx_str in enumerate(docx_paths):
+                p = Path(docx_str)
+                win.after(0, lambda idx=i, n=p.name: upd(idx, "[>]", n))
+                try:
+                    docx_bytes = p.read_bytes()
+                    issues = inspect_docx_for_epub(docx_bytes)
+                    if issues:
+                        raise ValueError(issues[0])
+                    chapters, images = parse_docx(docx_bytes)
+                    title = html.unescape(chapters[0][1]) if chapters else p.stem
+                    meta = {
+                        "title":       title,
+                        "author":      self.author_var.get().strip(),
+                        "publisher":   self.publisher_var.get().strip() or self.author_var.get().strip(),
+                        "year":        self.year_var.get().strip() or str(date.today().year),
+                        "isbn":        "",
+                        "description": "",
+                    }
+                    epub_bytes = build_epub(meta, chapters, images, cover_bytes, cover_ext, lang=doc_lang)
+                    out_path = p.with_suffix(".epub")
+                    out_path.write_bytes(epub_bytes)
+                    ok += 1
+                    win.after(0, lambda idx=i, n=p.name: upd(idx, "[OK]", n))
+                except Exception as exc:
+                    err += 1
+                    msg = f"{p.name} — {exc}"
+                    win.after(0, lambda idx=i, m=msg: upd(idx, "[!!]", m))
+                win.after(0, lambda v=i + 1: progress.configure(value=v))
+
+            summary = self.t("batch_summary_ok") + str(ok)
+            if err:
+                summary += self.t("batch_summary_err") + str(err)
+            win.after(0, lambda: summary_var.set(summary))
+            win.after(0, lambda: close_btn.configure(state=tk.NORMAL))
+
+        threading.Thread(target=worker, daemon=True).start()
 
 
 def main():

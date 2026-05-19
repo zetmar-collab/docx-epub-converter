@@ -7,3 +7,7 @@ dist/
 build/
 *.tmp
 *.log
+None
+Path
+str
+tuple[list
