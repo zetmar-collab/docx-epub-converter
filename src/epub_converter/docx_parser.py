@@ -209,7 +209,7 @@ def parse_docx(docx_bytes: bytes, lang: str = "pl") -> tuple[list, dict[str, byt
                 if fn_id not in seen:
                     seen.add(fn_id)
                     items.append(
-                        f'<aside id="fn-{fn_id}" epub:type="footnote" role="doc-footnote">'
+                        f'<aside id="fn-{fn_id}" epub:type="footnote" role="note">'
                         f"<p><sup>[{fn_id}]</sup> {fn_text}</p></aside>"
                     )
             cur_body.append(

@@ -3,7 +3,7 @@
 from docx.oxml.ns import qn as _docx_qn
 
 APP_TITLE = "DOCX EPUB Converter"
-APP_VERSION = "2.1"
+APP_VERSION = "2.1.1"
 APP_AUTHOR = "Marek Zettel"
 
 NAVY_BG = "#071a33"

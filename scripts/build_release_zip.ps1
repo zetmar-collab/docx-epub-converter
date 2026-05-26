@@ -1,7 +1,7 @@
 # Builds dist/docx-epub-converter-v2.1.zip for GitHub Releases (no venv, no tests cache).
 $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path | Split-Path -Parent
-$Version = "2.1"
+$Version = "2.1.1"
 $ZipName = "docx-epub-converter-v$Version.zip"
 $Staging = Join-Path $env:TEMP "docx-epub-converter-v$Version"
 $DistDir = Join-Path $ProjectDir "dist"

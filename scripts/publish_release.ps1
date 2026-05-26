@@ -7,14 +7,15 @@ if (-not (Test-Path $Gh)) { $Gh = "gh" }
 Set-Location $ProjectDir
 & "$ProjectDir\scripts\build_release_zip.ps1"
 
-$Zip = Join-Path $ProjectDir "dist\docx-epub-converter-v2.1.zip"
-$Notes = Join-Path $ProjectDir "docs\RELEASE_v2.1.md"
+$Version = "2.1.1"
+$Zip = Join-Path $ProjectDir "dist\docx-epub-converter-v$Version.zip"
+$Notes = Join-Path $ProjectDir "docs\RELEASE_v$Version.md"
 
 & $Gh auth status
-& $gh release create v2.1 `
+& $gh release create "v$Version" `
     --repo zetmar-collab/docx-epub-converter `
-    --title "DOCX EPUB Converter v2.1" `
+    --title "DOCX EPUB Converter v$Version" `
     --notes-file $Notes `
     $Zip
 
-Write-Host "Release: https://github.com/zetmar-collab/docx-epub-converter/releases/tag/v2.1"
+Write-Host "Release: https://github.com/zetmar-collab/docx-epub-converter/releases/tag/v$Version"

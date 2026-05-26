@@ -38,7 +38,7 @@ def make_cover_xhtml(cover_alt: str, cover_ext: str, lang: str = "pl") -> bytes:
         "object-fit:contain}</style>\n"
         "</head>\n"
         "<body>\n"
-        '  <section epub:type="cover" role="doc-cover"><div class="w"><img class="c" src="../images/cover'
+        '  <section epub:type="cover"><div class="w"><img class="c" src="../images/cover'
         + cover_ext
         + '" alt="'
         + xml_escape(cover_alt)
