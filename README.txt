@@ -1,4 +1,4 @@
-DOCX EPUB Converter v2.0
+DOCX EPUB Converter v2.1
 Autor: Marek Zettel
 Konwersja plikow DOCX do EPUB 3 zgodnych z EAA / EPUB Accessibility 1.1 / WCAG 2.1 AA
 
@@ -113,6 +113,16 @@ Dostepnosc EPUB:
 ========================================================================
 HISTORIA ZMIAN
 ========================================================================
+
+v2.1 (maj 2026)
+  - Refaktoryzacja: kod w src/epub_converter/ (parser, EPUB, GUI, testy)
+  - Poprawka: style Heading 10 nie sa juz mylone z Heading 1
+  - ISBN: suma kontrolna, identyfikator urn:isbn: w OPF
+  - Alt obrazow z DOCX (descr/title) lub domyslny tekst w jezyku dokumentu
+  - Preflight: przycisk „Konwertuj mimo ostrzezen”
+  - Sprawdzenie Java przy starcie (EpubCheck)
+  - Batch: walidacja EpubCheck, opis z formularza
+  - Uruchomienie: run_converter.py (skroty i instalatory zaktualizowane)
 
 v2.0 (maj 2026)
   - Obrazy inline wyciagane z DOCX i osadzane w EPUB

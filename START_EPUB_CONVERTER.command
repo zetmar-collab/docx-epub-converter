@@ -13,4 +13,4 @@ echo "Instalowanie zaleznosci..."
 ".venv/bin/python" -m pip install -r requirements.txt --quiet
 
 echo "Uruchamianie EPUB Converter..."
-".venv/bin/python" epub_converter.py
+".venv/bin/python" run_converter.py

@@ -7,7 +7,17 @@ dist/
 build/
 *.tmp
 *.log
+.pytest_cache/
+.mypy_cache/
+htmlcov/
+.coverage
+
+# Local / accidental artifacts
+bytes
+tuple[list
 None
 Path
 str
-tuple[list
+
+# Marketing drafts (keep out of repo root)
+/*.docx

@@ -25,7 +25,7 @@ mkdir -p "$APP_DIR/Contents/MacOS" "$APP_DIR/Contents/Resources"
 cat > "$APP_DIR/Contents/MacOS/launch" <<EOF
 #!/bin/zsh
 cd "$PROJECT_DIR"
-"$PYTHON_BIN" "$PROJECT_DIR/epub_converter.py"
+"$PYTHON_BIN" "$PROJECT_DIR/run_converter.py"
 EOF
 chmod +x "$APP_DIR/Contents/MacOS/launch"
 

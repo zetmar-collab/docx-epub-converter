@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $VenvPython = Join-Path $ProjectDir ".venv\Scripts\python.exe"
 $VenvPythonw = Join-Path $ProjectDir ".venv\Scripts\pythonw.exe"
-$AppFile = Join-Path $ProjectDir "epub_converter.py"
+$AppFile = Join-Path $ProjectDir "run_converter.py"
 $IconFile = Join-Path $ProjectDir "assets\app_icon.ico"
 
 Set-Location $ProjectDir
