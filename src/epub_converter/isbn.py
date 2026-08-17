@@ -8,7 +8,8 @@ def normalize_isbn(raw: str) -> str:
 
 
 def is_valid_isbn_format(isbn: str) -> bool:
-    return bool(re.fullmatch(r"\d{10}(\d{3})?", isbn))
+    # ISBN-10 may end in 'X' (check digit 10); ISBN-13 is always 13 digits.
+    return bool(re.fullmatch(r"\d{9}[\dXx]|\d{13}", isbn))
 
 
 def _check_isbn10(isbn: str) -> bool:

@@ -21,3 +21,11 @@ str
 
 # Marketing drafts (keep out of repo root)
 /*.docx
+
+# MSIX / Store build output
+packaging/Assets/
+*.msix
+*.msixbundle
+*.appx
+*.pfx
+*.cer

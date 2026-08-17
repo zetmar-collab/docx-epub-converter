@@ -8,6 +8,7 @@ import logging
 from typing import TYPE_CHECKING
 
 from docx import Document
+from docx.oxml import parse_xml
 from docx.oxml.ns import qn as _docx_qn
 
 from epub_converter.constants import (
@@ -152,8 +153,15 @@ def table_to_html(table) -> str:
 def extract_footnotes(doc) -> dict[str, str]:
     try:
         fn_part = doc.part.part_related_by(_FOOTNOTES_RT)
+        # python-docx does not register the footnotes content type, so this part
+        # always loads as a generic Part with no parsed ``_element`` - fall back
+        # to parsing its raw bytes, otherwise no footnote text is ever found and
+        # the noteref anchors point at asides that were never emitted.
+        root = getattr(fn_part, "_element", None)
+        if root is None:
+            root = parse_xml(fn_part.blob)
         result = {}
-        for fn in fn_part._element.findall(_docx_qn("w:footnote")):
+        for fn in root.findall(_docx_qn("w:footnote")):
             fn_id = fn.get(_W_FN_ID, "")
             if fn_id in ("-1", "0"):
                 continue
