@@ -49,7 +49,7 @@ from epub_converter.utils import (
     safe_filename,
     sanitize_dropped_path,
 )
-from epub_converter.validation import java_available, validate_epub
+from epub_converter.validation import epubcheck_available, validate_epub
 
 _BaseApp = TkinterDnD.Tk if _HAS_DND else tk.Tk  # type: ignore[misc]
 
@@ -81,7 +81,7 @@ class EpubConverterApp(_BaseApp):
         self._tw: dict[str, tk.Widget] = {}
         self._doc_lang_codes: list[str] = [code for _, code in DOC_LANGUAGES]
         self._output_manually_set = False
-        self._java_available = java_available()
+        self._java_available = epubcheck_available()
         self._ui_font = pick_ui_font(self, 10)
         self._ui_font_bold = pick_ui_font(self, 10, "bold")
         self._ui_font_title = pick_ui_font(self, 18, "bold")
@@ -795,11 +795,9 @@ class EpubConverterApp(_BaseApp):
             epub_bytes  = build_epub(meta, chapters, images, cover_bytes, cover_ext, lang=doc_lang)
             saved_path.write_bytes(epub_bytes)
             if self._java_available:
-                valid, messages = validate_epub(epub_bytes)
-                epubcheck_ran = True
+                epubcheck_ran, valid, messages = validate_epub(epub_bytes)
             else:
-                valid, messages = True, []
-                epubcheck_ran = False
+                epubcheck_ran, valid, messages = False, True, []
 
             result = ConversionResult(
                 meta, chapters, images, epub_bytes, cover_bytes, cover_ext,
@@ -968,8 +966,8 @@ class EpubConverterApp(_BaseApp):
                     out_path.write_bytes(epub_bytes)
                     label = "[OK]"
                     if self._java_available:
-                        valid, _msgs = validate_epub(epub_bytes)
-                        if not valid:
+                        ran, valid, _msgs = validate_epub(epub_bytes)
+                        if ran and not valid:
                             label = "[OK*]"
                     ok += 1
                     suffix = self.t("batch_epubcheck_warn") if label == "[OK*]" else ""

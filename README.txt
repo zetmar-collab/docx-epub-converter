@@ -188,4 +188,8 @@ Instalacja zaleznosci recznie:
 LICENCJA
 ========================================================================
 
-Copyright (c) 2026 Marek Zettel. Wszelkie prawa zastrzezone.
+Copyright (c) 2026 Marek Zettel.
+
+Oprogramowanie udostepniane na licencji MIT — pelny tekst w pliku LICENSE.
+Zaleznosci zewnetrzne (python-docx, Pillow, EpubCheck, tkinterdnd2) maja
+wlasne licencje, wymienione na koncu pliku LICENSE.
