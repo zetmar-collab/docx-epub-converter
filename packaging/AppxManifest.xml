@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSIX manifest for Microsoft Store submission.
+
+  Identity values below come from Partner Center > Product > Product identity
+  and must not be edited. Identity/@Version must be 4 parts and the last part
+  MUST be 0 for the Store; bump the third part for each new submission.
+-->
+<Package
+    xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+    xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+    xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+    xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+    IgnorableNamespaces="uap uap3 rescap">
+
+  <Identity
+      Name="MarekZettel-zetmar.DOCXEPUBConverter"
+      Publisher="CN=15A53D32-C868-48EE-B700-5DBB5449CA1B"
+      Version="2.1.1.0"
+      ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>DOCX EPUB Converter</DisplayName>
+    <PublisherDisplayName>Marek Zettel - zetmar</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <Description>Convert DOCX manuscripts into accessible EPUB 3 ebooks compliant with the European Accessibility Act, EPUB Accessibility 1.1 and WCAG 2.1 AA.</Description>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="pl-PL" />
+    <Resource Language="en-US" />
+  </Resources>
+
+  <Applications>
+    <Application Id="DocxEpubConverter" Executable="DocxEpubConverter.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+          DisplayName="DOCX EPUB Converter"
+          Description="Convert DOCX to accessible EPUB 3 (EAA / WCAG 2.1 AA)"
+          BackgroundColor="#071a33"
+          Square150x150Logo="Assets\Square150x150Logo.png"
+          Square44x44Logo="Assets\Square44x44Logo.png">
+        <uap:DefaultTile
+            Wide310x150Logo="Assets\Wide310x150Logo.png"
+            Square310x310Logo="Assets\Square310x310Logo.png"
+            Square71x71Logo="Assets\Square71x71Logo.png"
+            ShortName="EPUB Converter">
+          <uap:ShowNameOnTiles>
+            <uap:ShowOn Tile="square150x150Logo" />
+            <uap:ShowOn Tile="wide310x150Logo" />
+          </uap:ShowNameOnTiles>
+        </uap:DefaultTile>
+        <uap:SplashScreen Image="Assets\SplashScreen.png" BackgroundColor="#071a33" />
+      </uap:VisualElements>
+
+      <Extensions>
+        <!-- "Open with > DOCX EPUB Converter" on .docx files. -->
+        <uap3:Extension Category="windows.fileTypeAssociation">
+          <uap3:FileTypeAssociation Name="docx">
+            <uap:SupportedFileTypes>
+              <uap:FileType>.docx</uap:FileType>
+            </uap:SupportedFileTypes>
+            <uap:Logo>Assets\Square44x44Logo.png</uap:Logo>
+            <uap:DisplayName>Word document</uap:DisplayName>
+          </uap3:FileTypeAssociation>
+        </uap3:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <!-- Full-trust desktop app: needs to read the user's DOCX/cover files and
+         write the EPUB wherever the user picks in the save dialog. -->
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

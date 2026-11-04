@@ -1,7 +1,12 @@
 # Builds dist/docx-epub-converter-v2.1.zip for GitHub Releases (no venv, no tests cache).
 $ErrorActionPreference = "Stop"
 $ProjectDir = Split-Path -Parent $MyInvocation.MyCommand.Path | Split-Path -Parent
-$Version = "2.1.1"
+
+# Single source of truth for the version: src/epub_converter/constants.py
+$ConstantsPath = Join-Path $ProjectDir "src\epub_converter\constants.py"
+$VersionMatch = Select-String -Path $ConstantsPath -Pattern 'APP_VERSION\s*=\s*"([^"]+)"'
+if (-not $VersionMatch) { throw "APP_VERSION not found in $ConstantsPath" }
+$Version = $VersionMatch.Matches[0].Groups[1].Value
 $ZipName = "docx-epub-converter-v$Version.zip"
 $Staging = Join-Path $env:TEMP "docx-epub-converter-v$Version"
 $DistDir = Join-Path $ProjectDir "dist"

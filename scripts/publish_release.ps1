@@ -7,7 +7,11 @@ if (-not (Test-Path $Gh)) { $Gh = "gh" }
 Set-Location $ProjectDir
 & "$ProjectDir\scripts\build_release_zip.ps1"
 
-$Version = "2.1.1"
+$ConstantsPath = Join-Path $ProjectDir "src\epub_converter\constants.py"
+$VersionMatch = Select-String -Path $ConstantsPath -Pattern 'APP_VERSION\s*=\s*"([^"]+)"'
+if (-not $VersionMatch) { throw "APP_VERSION not found in $ConstantsPath" }
+$Version = $VersionMatch.Matches[0].Groups[1].Value
+
 $Zip = Join-Path $ProjectDir "dist\docx-epub-converter-v$Version.zip"
 $Notes = Join-Path $ProjectDir "docs\RELEASE_v$Version.md"
 
