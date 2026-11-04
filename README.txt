@@ -2,6 +2,9 @@ DOCX EPUB Converter v2.1.1
 Autor: Marek Zettel
 Konwersja plikow DOCX do EPUB 3 zgodnych z EAA / EPUB Accessibility 1.1 / WCAG 2.1 AA
 
+Microsoft Store: https://apps.microsoft.com/detail/9NB4TQDS8M7Q
+(instalacja jednym kliknieciem, automatyczne aktualizacje)
+
 ========================================================================
 INSTALACJA
 ========================================================================
